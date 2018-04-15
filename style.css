@@ -163,7 +163,10 @@ a {
   }
 }
 
+.clear-fix {
+  clear: both;
+}
 
-.scroll-spacer {
+#scroll-spacer {
   height: calc(100% - 64px);
 }

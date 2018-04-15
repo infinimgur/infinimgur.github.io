@@ -1,184 +1,180 @@
-var app = angular.module("infinimgur", ["infinite-scroll"]);
+var app = angular.module("infinimgur", []);
 
-app.factory("ImgurStats", function() {
-  var ImgurStats = {};
-
-  ImgurStats.successes = 0;
-  ImgurStats.failures = 0;
-  ImgurStats.successrate = 0;
-
-  ImgurStats.rps = 0;
-  ImgurStats.sps = 0;
-  ImgurStats._rps = 0;
-  ImgurStats._sps = 0;
-
-  ImgurStats.success = function() {
-    ImgurStats._rps++;
-    ImgurStats._sps++;
-
-    ImgurStats.successes++;
-    ImgurStats.successrate = ImgurStats.successes /
-      (ImgurStats.successes + ImgurStats.failures);
+app.factory("ImgurImage", function($q, $http) {
+  var ImgurImage = function(id) {
+    var self = this;
+    self.id = id;
+    self.thumbnail = "https://i.imgur.com/" + self.id + "s.jpg";
+    self.image = "https://i.imgur.com/" + self.id + ".png"; // extension unknown
   }
 
-  ImgurStats.failure = function() {
-    ImgurStats._rps++;
-
-    ImgurStats.failures++;
-    ImgurStats.successrate = ImgurStats.successes /
-      (ImgurStats.successes + ImgurStats.failures);
-  }
-
-  ImgurStats.updateRPS = function() {
-    ImgurStats.rps = ImgurStats._rps;
-    ImgurStats.sps = ImgurStats._sps;
-
-    ImgurStats._rps = 0;
-    ImgurStats._sps = 0;
-  }
-
-  return ImgurStats;
-});
-
-app.factory("ImgurRequest", function($q, $http, ImgurStats) {
-  var ImgurRequest = function(id) {
-    this.id = id;
-    this.thumbnail = "//i.imgur.com/" + this.id + "s.jpg";
-    this.image = "//i.imgur.com/" + this.id + ".png"; // extension unknown
-  }
-
-  ImgurRequest.prototype.get = function() {
-    var that = this;
+  ImgurImage.prototype.fetch = function() {
+    var self = this;
 
     return $q(function(resolve, reject) {
       var img = new Image();
       img.onload = function() {
         if ((img.width == 198 && img.height == 160) ||
             (img.width == 161 && img.height == 81)) {
-          ImgurStats.failure();
           reject();
         } else {
-          ImgurStats.success();
-          resolve(that);
+          resolve(self);
         }
       }
       img.onerror = function() {
-        ImgurStats.failure();
         reject();
       }
 
-      img.src = "//i.imgur.com/" + that.id + "s.jpg";
+      img.src = "//i.imgur.com/" + self.id + "s.jpg";
     });
   }
 
-  return ImgurRequest;
+  return ImgurImage;
 });
 
-app.factory("MultiFusk", function($q, ImgurRequest) {
-  var MultiFusk = function(wanted, concurrent) {
-    this.wanted = wanted;
-    this.found = [];
-    this.concurrent = concurrent || 3;
+app.factory("ImgurRoulette", function($q, ImgurImage) {
+  var ImgurRoulette = function(concurrency) {
+    var self = this;
+    self.concurrency = concurrency || 5;
+    self.idChance = 0.2;
 
-    this.resolve = null;
-    this.reject = null;
+    self.attempts = 0;
+    self.successfulAttempts = 0;
+    self.failedAttempts = 0;
   }
 
-  MultiFusk.prototype.next = function() {
-    var that = this;
-    if (Math.random() > 0.2)
-      var id = Math.random().toString(36).substr(2, 5);
-    else
-      var id = Math.random().toString(36).substr(2, 7);
-
-    (new ImgurRequest(id)).get()
-      .then(function(req) {
-        that.found.push(req);
-
-        if (that.found.length >= that.wanted) {
-          that.resolve(that.found);
-        } else {
-          that.next();
-        }
-      }, function() {
-        that.next();
-      });
+  ImgurRoulette.prototype.generateID = function() {
+    var length = (Math.random() > self.idChance) ? 5 : 7;
+    return Math.random().toString(36).substr(2, length - 2);
   }
 
-  MultiFusk.prototype.search = function() {
-    var that = this;
-
+  ImgurRoulette.prototype.attempt = function() {
+    var self = this;
     return $q(function(resolve, reject) {
-      that.resolve = resolve; // :/
-      that.reject = reject;
+      var id = self.generateID();
+      self.attempts++;
+      var image = new ImgurImage(id);
+      image.fetch()
+      .then(function() {
+        self.successfulAttempts++;
+        resolve(image);
+      }, function() {
+        self.failedAttempts++;
+        reject(image);
+      });
+    })
+  }
 
-      for (var i = 0; i < that.concurrent; i++)
-        that.next();
+  ImgurRoulette.prototype.attemptConcurrent = function() {
+    var self = this;
+    return $q(function(resolve, reject) {
+      var foundImages = [];
+      var attempted = 0;
+      for (var i = 0; i < self.concurrency; i++) {
+        self.attempt()
+        .then(function(image) {
+          foundImages.push(image);
+          if (++attempted >= self.concurrency) resolve(foundImages);
+        }, function(image) {
+          if (++attempted >= self.concurrency) resolve(foundImages);
+        });
+      }
     });
   }
 
-  return MultiFusk;
+  ImgurRoulette.prototype.attemptUntil = function(count) {
+    var self = this;
+    return $q(function(resolve, reject) {
+      var foundImages = [];
+      self.attemptConcurrent()
+      .then(function(images) {
+        foundImages = foundImages.concat(images);
+        if (foundImages.length < count) {
+          setTimeout(function() {
+            self.attemptUntil(count - foundImages.length)
+            .then(function(images) {
+              foundImages = foundImages.concat(images);
+              resolve(foundImages);
+            });
+          }, 0);
+        } else {
+          resolve(foundImages);
+        }
+      });
+    })
+  }
+
+  return ImgurRoulette;
 });
 
-app.controller("RouletteCtrl", function($scope, MultiFusk) {
-  $scope.loading = false;
-  $scope.thumbnails = [];
+app.controller("RouletteCtrl", function($scope, $interval, ImgurRoulette) {
+  $scope.busy = false;
+  $scope.images = [];
+  $scope.roulette = new ImgurRoulette();
+  $scope.rateLimit = 1000;
+  $scope.successRate = 0;
 
-  $scope.load = function() {
-    $scope.loading = true;
-    (new MultiFusk(5)).search().then(function(found) {
-      for (var i = 0; i < found.length; i++)
-        $scope.thumbnails.push(found[i]);
+  $scope.wantsMore = function() {
+    var el = document.documentElement;
+    var pageHeight = el.clientHeight;
+    var scrollHeight = el.scrollHeight;
+    var scrollTop = el.scrollTop;
 
-      $scope.loading = false;
+    return scrollTop >= scrollHeight - pageHeight * 1.5;
+  }
+
+  $scope.loadMore = function() {
+    $scope.busy = true;
+    $scope.roulette.attemptUntil(5)
+    .then(function(images) {
+      images.forEach(function(image) { $scope.images.push(image); })
+      if ($scope.wantsMore())
+        setTimeout($scope.loadMore, $scope.rateLimit);
+      else
+        $scope.busy = false;
+    }, function() {
+      $scope.busy = false;
     });
   }
 
-  $scope.shrink = function(thumb)
+  $scope.shrinkThumbnail = function(thumb)
   {
     var img = thumb.find("img");
     var id = thumb.attr("id");
     thumb.removeClass("expanded z-2");
-    img.attr("src", "//i.imgur.com/" + id + "s.jpg");
+    img.attr("src", "https://i.imgur.com/" + id + "s.jpg");
   }
 
-  $scope.expand = function(thumb)
+  $scope.expandThumbnail = function(thumb)
   {
-    $scope.shrink($(".thumbnail.expanded"));
+    $scope.shrinkThumbnail($(".thumbnail.expanded"));
     var img = thumb.find("img");
     var id = thumb.attr("id");
     thumb.addClass("expanded z-2");
-    img.attr("src", "//i.imgur.com/" + id + ".png");
+    img.attr("src", "https://i.imgur.com/" + id + ".png");
   }
 
-  $scope.toggle = function($event) {
-    if ($event.currentTarget)
-      var target = $($event.currentTarget);
-    else
-      var target = $event;
-
-    if (target.hasClass("expanded")) {
-      $scope.shrink(target);
+  $scope.toggleThumbnail = function(thumb) {
+    var $thumb = $(thumb);
+    if ($thumb.hasClass("expanded")) {
+      $scope.shrinkThumbnail($thumb);
     } else {
-      $scope.expand(target);
+      $scope.expandThumbnail($thumb);
     }
-    $.scrollTo(target.position().top - 64, 200);
   }
+
+  function intervalHandler() {
+    if (!$scope.busy && $scope.wantsMore())
+      $scope.loadMore();
+    
+    $scope.successRate = Math.floor(($scope.roulette.successfulAttempts / $scope.roulette.attempts) * 100);
+  }
+  $interval(intervalHandler, 500);
 });
 
-app.controller("StatsCtrl", function($scope, ImgurStats) {
-  $scope.Math = window.Math;
-  $scope.stats = ImgurStats;
-});
-
-app.run(function(ImgurStats) {
-  setInterval(function() {
-    ImgurStats.updateRPS();
-  }, 1000);
-
-
-
+app.run(function() {
   $(window).on("keydown", function(e) {
+    if (e.which != 37 && e.which != 39) return;
     e.preventDefault();
 
     var thumb = $(".thumbnail.expanded");
