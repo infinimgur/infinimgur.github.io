@@ -6,6 +6,7 @@ app.factory("ImgurImage", function($q, $http) {
     self.id = id;
     self.thumbnail = "https://i.imgur.com/" + self.id + "s.jpg";
     self.image = "https://i.imgur.com/" + self.id + ".png"; // extension unknown
+    self.page = "https://imgur.com/" + self.id + "/";
   }
 
   ImgurImage.prototype.fetch = function() {
@@ -113,6 +114,7 @@ app.controller("RouletteCtrl", function($scope, $interval, ImgurRoulette) {
   $scope.roulette = new ImgurRoulette();
   $scope.rateLimit = 1000;
   $scope.successRate = 0;
+  $scope.disclaimerDismissed = false;
 
   $scope.wantsMore = function() {
     var el = document.documentElement;
@@ -161,14 +163,15 @@ app.controller("RouletteCtrl", function($scope, $interval, ImgurRoulette) {
     } else {
       $scope.expandThumbnail($thumb);
     }
-  }
+  }  
 
   function intervalHandler() {
+    if (!$scope.disclaimerDismissed) return;
     if (!$scope.busy && $scope.wantsMore())
       $scope.loadMore();
-    
     $scope.successRate = Math.floor(($scope.roulette.successfulAttempts / $scope.roulette.attempts) * 100);
   }
+
   $interval(intervalHandler, 500);
 });
 
