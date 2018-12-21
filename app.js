@@ -37,7 +37,6 @@ app.factory("ImgurRoulette", function($q, ImgurImage) {
   var ImgurRoulette = function(concurrency) {
     var self = this;
     self.concurrency = concurrency || 5;
-    self.idChance = 0.2;
 
     self.attempts = 0;
     self.successfulAttempts = 0;
@@ -45,7 +44,7 @@ app.factory("ImgurRoulette", function($q, ImgurImage) {
   }
 
   ImgurRoulette.prototype.generateID = function() {
-    var length = (Math.random() > self.idChance) ? 5 : 7;
+    var length = (Math.random() > 0.2) ? 5 : 7;
     return Math.random().toString(36).substring(2, length + 2);
   }
 
