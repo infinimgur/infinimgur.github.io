@@ -26,7 +26,7 @@ app.factory("ImgurImage", function($q, $http) {
         reject();
       }
 
-      img.src = "//i.imgur.com/" + self.id + "s.jpg";
+      img.src = "https://i.imgur.com/" + self.id + "s.jpg";
     });
   }
 
